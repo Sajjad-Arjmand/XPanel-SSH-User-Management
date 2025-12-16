@@ -255,27 +255,34 @@ startINSTALL() {
     sudo apt-get install coreutils
     apt install curl -y
     apt install git cmake -y
-    apt install php8.1 php8.1-mysql php8.1-xml php8.1-curl cron -y
-    sudo apt install php8.1-fpm
-    sudo apt install php8.1 php8.1-cli php8.1-common php8.1-opcache php8.1-mysql php8.1-mbstring php8.1-zip php8.1-intl php8.1-simplexml -y
+    # Skip hardcoded PHP 8.1 installation - will detect and install appropriate version below
     wait
 
     phpv=$(php -v)
-    if [[ $phpv == *"8.1"* ]]; then
-
+    # Detect PHP version (8.1, 8.2, 8.3, etc.)
+    PHP_VERSION=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;" 2>/dev/null)
+    
+    if [[ $phpv == *"8."* ]]; then
       apt autoremove -y
-      echo "PHP Is Installed :)"
+      echo "PHP $PHP_VERSION Is Installed :)"
     else
       rm -fr /etc/php/7.4/apache2/conf.d/00-ioncube.ini
       sudo apt-get purge '^php7.*' -y
-      apt remove php* -y
-      apt remove php -y
       apt autoremove -y
-      apt install php8.1 php8.1-mysql php8.1-xml php8.1-curl cron -y
-      sudo apt install php8.1-fpm
-      sudo apt install php8.1 php8.1-cli php8.1-common  php8.1-opcache php8.1-mysql php8.1-mbstring php8.1-zip php8.1-intl php8.1-simplexml -y
-
+      # Try to install PHP 8.3 first, then 8.2, then 8.1
+      if apt install php8.3 php8.3-mysql php8.3-xml php8.3-curl php8.3-fpm php8.3-cli php8.3-common php8.3-opcache php8.3-mbstring php8.3-zip php8.3-intl php8.3-simplexml cron -y 2>/dev/null; then
+        PHP_VERSION="8.3"
+      elif apt install php8.2 php8.2-mysql php8.2-xml php8.2-curl php8.2-fpm php8.2-cli php8.2-common php8.2-opcache php8.2-mbstring php8.2-zip php8.2-intl php8.2-simplexml cron -y 2>/dev/null; then
+        PHP_VERSION="8.2"
+      else
+        apt install php8.1 php8.1-mysql php8.1-xml php8.1-curl cron -y
+        sudo apt install php8.1-fpm
+        sudo apt install php8.1 php8.1-cli php8.1-common php8.1-opcache php8.1-mysql php8.1-mbstring php8.1-zip php8.1-intl php8.1-simplexml -y
+        PHP_VERSION="8.1"
+      fi
     fi
+    
+    echo "Using PHP version: $PHP_VERSION"
     curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer
     echo "/bin/false" >>/etc/shells
     echo "/usr/sbin/nologin" >>/etc/shells
@@ -326,7 +333,7 @@ EOF
     chmod +x /usr/local/bin/cronx
     sudo wget -4 -O /usr/local/bin/cronxfixed https://raw.githubusercontent.com/xpanel-cp/XPanel-SSH-User-Management/master/cronxfixed
     chmod +x /usr/local/bin/cronxfixed
-    sed -i 's@zend_extension = /usr/local/ioncube/ioncube_loader_lin_8.1.so@@' /etc/php/8.1/cli/php.ini
+    sed -i "s@zend_extension = /usr/local/ioncube/ioncube_loader_lin_${PHP_VERSION}.so@@" /etc/php/${PHP_VERSION}/cli/php.ini 2>/dev/null || true
     bash <(curl -Ls https://raw.githubusercontent.com/xpanel-cp/XPanel-SSH-User-Management/master/ioncube.sh --ipv4)
     wait
     echo 'www-data ALL=(ALL:ALL) NOPASSWD:/usr/local/bin/cronx' | sudo EDITOR='tee -a' visudo &
@@ -572,6 +579,9 @@ server {
 }
 EOF
     sed -i "s/serverPort/$serverPort/g" /etc/nginx/sites-available/default
+    # Replace PHP version in nginx config with detected version
+    sed -i "s/php8.1-fpm.sock/php${PHP_VERSION}-fpm.sock/g" /etc/nginx/sites-available/default
+    sed -i "s/ioncube_loader_lin_8.1.so/ioncube_loader_lin_${PHP_VERSION}.so/g" /etc/nginx/sites-available/default
     sudo ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/
     echo '#Xpanel' >/var/www/xpanelport
     sudo sed -i -e '$a\'$'\n''Xpanelport '$serverPort /var/www/xpanelport
@@ -958,9 +968,11 @@ check_install mariadb-server
 check_install php
 check_install npm
 check_install coreutils
-check_install php8.1
-check_install php8.1-mysql
-check_install php8.1-xml
-check_install php8.1-curl
+# Check installed PHP version packages
+INSTALLED_PHP_VER=$(php -r "echo PHP_MAJOR_VERSION.'.'.PHP_MINOR_VERSION;" 2>/dev/null || echo "8.1")
+check_install php${INSTALLED_PHP_VER}
+check_install php${INSTALLED_PHP_VER}-mysql
+check_install php${INSTALLED_PHP_VER}-xml
+check_install php${INSTALLED_PHP_VER}-curl
 check_install cron
 check_install nethogs
